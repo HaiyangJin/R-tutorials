@@ -1,7 +1,7 @@
 ---
 title: "Data Analysis for the Composite Face Task (108)"
 author: "Haiyang Jin (haiyang.jin@auckland.ac.nz)"
-date:  "16/12/2017"
+date:  "`r format(Sys.time(), '%d-%m-%Y')`"
 output: 
   html_document:
     number_sections: true
@@ -125,8 +125,7 @@ for (iExpLevel in 1:length(expLevel.old)) {
   rawData$Experiment[rawData$Experiment == expLevel.old[iExpLevel]] <- expLevel.new[iExpLevel]
 }
 rawData$Experiment <- factor(rawData$Experiment, levels = expLevel.new)
-# conLevels <- unique(rawData$Congruency)
-# aliLevels <- unique(rawData$Alignment)
+
 rawData
 
 ```
