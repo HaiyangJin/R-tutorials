@@ -1,3 +1,4 @@
+# Author: Haiyang Jin (https://haiyangjin.github.io/portfolio/)
 round_df <- function (df, decimals = 4) {
   
   numeric_columns <- sapply(df, mode) == 'numeric'
