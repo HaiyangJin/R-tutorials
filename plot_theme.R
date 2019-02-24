@@ -1,3 +1,5 @@
+# Author: Haiyang Jin (https://haiyangjin.github.io/)
+
 # set up the theme for plot and rainclound plot
 plot_theme = theme(
     text = element_text(size = 10),
