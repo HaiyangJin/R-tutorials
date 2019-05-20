@@ -1,4 +1,7 @@
 qqplot_lmer <- function(lmm) {
+  # This code aims to run the qqplot for the resisuals of lmm (from lme4)
+  # Haiyang Jin (https://haiyangjin.github.io/)
+  
   df <- data.frame(resi = residuals(lmm))
   
   g <- {
