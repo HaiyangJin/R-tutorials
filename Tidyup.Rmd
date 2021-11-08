@@ -262,52 +262,6 @@ df_wide_rt <- df_long_rt %>%
 df_wide_rt
 ```
 
-# Data pre-processing
-
-## Sensitivity d'
-```{r}
-df_d <- df_3sd %>% 
-  ungroup() %>% 
-  mutate(isSame = response == "s") %>% # if the response is "same"
-  select(subjcode, valence, congruency, alignment, answer, isSame) %>% 
-  group_by(subjcode, valence, congruency, alignment, answer) %>% 
-  summarize(count = n(),
-            same_corr = (sum(isSame)+0.5)/(count+1),
-            .groups = "drop") %>% # Snodgrass & Corwin (1988)
-  ungroup() %>% 
-  pivot_wider(c(subjcode, valence, congruency, alignment),
-              names_from=answer, values_from=same_corr) %>% 
-  mutate(z_hit = qnorm(same),
-         z_FA = qnorm(diff),
-         d = z_hit- z_FA) %>% 
-  select(subjcode, valence, congruency, alignment, d)
-
-head(df_d)
-```
-
-## Correct response times
-```{r}
-df_rt <- df_3sd %>% 
-  ungroup() %>% 
-  select(subjcode, valence, congruency, alignment, correct, RT) %>% 
-  filter(correct==1) %>% 
-  group_by(subjcode, valence, congruency, alignment) %>% 
-  summarize(meanRT = mean(RT),
-            logRT = mean(log(RT)),
-            .groups = "drop")
-
-head(df_rt)
-```
-
-## Accuracy
-```{r}
-df_acc <- df_3sd %>% 
-  group_by(subjcode, valence, congruency, alignment) %>% 
-  summarize(acc = mean(correct), 
-            .groups = "drop")
-head(df_acc)
-```
-
 # Versions of packages used
 ```{r versions}
 sessionInfo()
