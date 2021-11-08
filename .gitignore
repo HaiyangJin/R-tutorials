@@ -56,5 +56,5 @@ docs/
 *.DS_Store
 
 # brmfit
-./brmfit/
-./data/*.csv
+brmfit/
+data/*.csv
