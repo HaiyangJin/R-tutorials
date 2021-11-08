@@ -1,0 +1,314 @@
+---
+title: "Composite Word Project"
+author: "[Haiyang Jin](https://haiyangjin.github.io/)"
+date: "`r format(Sys.time(), '%b %d %Y')`"
+output:
+  html_document:
+    df_print: paged
+    number_sections: true
+    toc: true
+    toc_depth: 6
+    toc_float: 
+      collapsed: true
+      smooth_scroll: false
+---
+
+# Set up
+```{r pre-setup}
+# install tidyverse if needed
+if (!require("tidyverse")) {install.packages("tidyverse")}
+```
+
+```{r setup}
+# load library
+library(tidyverse)
+```
+
+# Read csv into R (What we have)
+```{r message=FALSE}
+# "<-" is comparable to "="
+df_subj1 <- read_csv("data/238803_210821_111114 output.csv") 
+head(df_subj1)
+```
+
+# What we want
+
+Long vs. wide format
+
+## Long format
+
+Each row is one trial/participant, and columns are for different information.
+
+SubjCode | Age | Gender | IV1 | IV2 | DV1 | DV2
+:--: | :--: | :--: | :--: | :--: | :--: | :--:
+sub-001 | 20 | M | a1 | b1 | 840 | 0.80
+sub-001 | 20 | M | a2 | b1 | 800 | 0.75
+sub-001 | 20 | M | a1 | b2 | 740 | 0.78
+sub-001 | 20 | M | a2 | b2 | 825 | 0.85
+sub-002 | 22 | F | a1 | b1 | 800 | 0.85
+sub-002 | 22 | F | a2 | b1 | 700 | 0.80
+
+
+## Wide format (SPSS, Jamovi...)
+
+Each row is one participant and each column is one level (of within-participant variables). 
+
+e.g., response times:
+
+SubjCode | Age | Gender | a1b1 | a1b2 | a2b1 | a2b2 
+:--: | :--: | :--: | :--: | :--: | :--: | :--:
+sub-001 | 20 | M | 840 | 740 | 800 | 825
+sub-002 | 22 | F | 800 | 650 | 700 | 875
+
+
+# What we need to do (from "what we have" to "what we want")?
+
+0. Read data files into R;
+1. Remove some rows;
+2. Remove some columns;
+3. Rename columns;
+4. Reorder/re-arrange columns;
+5. Remove trials whose RT is too short (or "too long");
+6. Calculate means of each condition for each participant;
+7. Remove participants who responded "too slow" or "too quick";
+8. Conversion between long and wide formats;
+9. ...
+
+# Load data
+
+```{r}
+# filenames for all csv files in data/
+allcsv <- list.files(path="data/", pattern="*.csv")
+head(allcsv)
+```
+
+```{r message=FALSE}
+# read all files in once
+# read_csv("data/551155_210821_114658 output.csv") 
+df_all <- map_dfr(allcsv, ~read_csv(file.path("data", .x)))
+head(df_all)
+```
+
+```{r}
+# filter out trials with "space" response
+df_a_filtered <- filter(df_all, response != "space")
+head(df_a_filtered)
+```
+
+
+```{r}
+# create a SubjCode column
+df_af_subj <- mutate(df_a_filtered,
+                  subjcode = as.integer(as_factor(prolific_num)))
+head(df_af_subj)
+```
+
+# Pipe (%>%)
+
+```{r message=FALSE}
+# comparable codes to the above steps
+df_tmp <- list.files(path="data/", pattern="*.csv") %>% 
+  # map_dfr(., ~read_csv(file.path("data", .x))) %>% 
+  map_dfr(~read_csv(file.path("data", .x))) %>% 
+  filter(response != "space")  %>% 
+  mutate(subjcode = as.integer(as_factor(prolific_num))) 
+head(df_tmp)
+```
+
+```{r message=FALSE}
+df_raw <- list.files(path="data/", pattern="*.csv") %>% # all data file names
+  map_dfr(~read_csv(file.path("data", .x))) %>% # read all these files
+  filter(response != "space")  %>%  # remove trials whose responses were "space"
+  mutate(subjcode = as.integer(as_factor(prolific_num)), # make participant code
+         answer = corre_response) %>% # rename corre_response as answer
+  select(subjcode, valence, congruency, alignment, answer, response, RT, correct)
+
+head(df_raw)
+```
+
+# Remove outliers
+
+- At the participant level
+  - Accuracy is above 65%;
+  - RT is within three SD (across participants);
+- At the trial level
+  - Only keep trials whose RT were within three SD (for each participant separately);
+  - Only keep participants where the ratio of removed trials were below 15%;
+
+## At the participant level
+Participants whose overall accuracy was below 65% were removed.
+```{r}
+df_acc <- df_raw %>% 
+  group_by(subjcode) %>% # perform following calculation for each participant separately
+  summarize(mean_acc = mean(correct)) # mean accuracy
+
+df_subj_65 <- filter(df_acc, mean_acc >= .65)
+
+df_acc %>% 
+  filter(mean_acc < 0.65) 
+```
+As a result, 1 participant was removed due to its overall accuracy below 65%.
+
+Participants whose mean response times (RT) were outside **three** standard deviations among participants in the same experiment were removed.
+```{r }
+df_subj <- df_raw %>% 
+  filter(RT > 200) %>% # only keep trials whose RT is longer than 200
+  group_by(subjcode) %>% # perform following calculation for each participant separately
+  summarize(meanRT = mean(RT)) %>% # calculate the mean RT 
+  mutate(z_meanRT = scale(meanRT))  # calculate Z-value for each participant separately
+
+df_subj_3SD <- filter(df_subj, z_meanRT >= -3 & z_meanRT < 3 )
+
+df_subj %>% 
+  filter(z_meanRT > 3 | z_meanRT < -3)  #  
+```
+One novice were removed due to mean RT being outside 3SD.
+
+```{r}
+# participant list after removing outlier (meet criteria for both accuracy and RT)
+subj_list <- intersect(unique(df_subj_65$subjcode),
+                       unique(df_subj_3SD$subjcode))
+```
+
+
+## At the trial level
+Trials whose RT were outside three standard deviations for each participant were removed.
+```{r }
+df_3sd <- df_raw %>% 
+  filter(subjcode %in% subj_list) %>% # remove participants
+  group_by(subjcode) %>% # perform following calculation for each participant separately
+  filter(RT > 200) %>% # only keep trials whose RT is larger than 200
+  mutate(z_RT = scale(RT),  # calculate Z-value for each participant separately
+         N_total = n()) %>% # number of trials in total
+  filter(z_RT >= -3 & z_RT <= 3) %>% 
+  mutate(N_remain = n()) %>%  # number of trials within 3 SD 
+  ungroup() # remove any grouping
+```
+
+```{r }
+df_remove <- df_3sd %>% 
+  select(subjcode, N_total, N_remain) %>% 
+  distinct() %>% # find all the unique rows
+  mutate(N_remove = N_total - N_remain,
+         N_ratio = N_remove/N_total)
+
+df_remove %>% 
+  filter(N_ratio > 0.15)
+```
+For all participants, the ratio of outlier trials were below 15%. Therefore, no participants were removed.
+
+```{r}
+df_remove %>% 
+  summarize(mean_N_remove = mean(N_remove),
+            mean_N_ratio = mean(N_ratio))
+```
+
+## Number of remaining participants
+Number of participants for each experiment (after removing participants): 
+```{r}
+df_3sd$subjcode %>% # all values in subjcode
+  unique() %>% # find all unique values
+  length() # how many unique values
+```
+In summary:  
+One novice were removed due to mean RT being outside 3SD. Their accuracy was also below 65%.
+
+# "Clean" data
+
+## Long format
+
+Each row is one trial:
+```{r}
+head(df_3sd)
+```
+
+Each row is one participant and each column is one variable (could be independent or dependent variables):
+```{r}
+df_long_acc <- df_3sd %>% 
+  group_by(subjcode, valence, congruency, alignment) %>% 
+  summarize(acc = mean(correct),
+            N_trial = n(),
+            .groups = "drop")
+head(df_long_acc)
+```
+
+```{r}
+df_long_rt <- df_3sd %>% 
+  filter(correct == 1) %>% # only keep correct trials
+  group_by(subjcode, valence, congruency, alignment) %>% 
+  summarize(meanRT = mean(RT),
+            N_trial = n(),
+            .groups = "drop")
+head(df_long_rt)
+```
+
+## Wide format
+Each row is one participant and each column is one level of independent variables:
+```{r}
+df_wide_acc <- df_long_acc %>%
+  pivot_wider(id_cols = subjcode,
+              names_from = c(valence, congruency, alignment),
+              names_sep = "_",
+              values_from = acc)
+df_wide_acc
+```
+
+```{r}
+df_wide_rt <- df_long_rt %>% 
+  pivot_wider(id_cols = subjcode,
+              names_from = c(valence, congruency, alignment),
+              names_sep = "_",
+              values_from = meanRT)
+df_wide_rt
+```
+
+# Data pre-processing
+
+## Sensitivity d'
+```{r}
+df_d <- df_3sd %>% 
+  ungroup() %>% 
+  mutate(isSame = response == "s") %>% # if the response is "same"
+  select(subjcode, valence, congruency, alignment, answer, isSame) %>% 
+  group_by(subjcode, valence, congruency, alignment, answer) %>% 
+  summarize(count = n(),
+            same_corr = (sum(isSame)+0.5)/(count+1),
+            .groups = "drop") %>% # Snodgrass & Corwin (1988)
+  ungroup() %>% 
+  pivot_wider(c(subjcode, valence, congruency, alignment),
+              names_from=answer, values_from=same_corr) %>% 
+  mutate(z_hit = qnorm(same),
+         z_FA = qnorm(diff),
+         d = z_hit- z_FA) %>% 
+  select(subjcode, valence, congruency, alignment, d)
+
+head(df_d)
+```
+
+## Correct response times
+```{r}
+df_rt <- df_3sd %>% 
+  ungroup() %>% 
+  select(subjcode, valence, congruency, alignment, correct, RT) %>% 
+  filter(correct==1) %>% 
+  group_by(subjcode, valence, congruency, alignment) %>% 
+  summarize(meanRT = mean(RT),
+            logRT = mean(log(RT)),
+            .groups = "drop")
+
+head(df_rt)
+```
+
+## Accuracy
+```{r}
+df_acc <- df_3sd %>% 
+  group_by(subjcode, valence, congruency, alignment) %>% 
+  summarize(acc = mean(correct), 
+            .groups = "drop")
+head(df_acc)
+```
+
+# Versions of packages used
+```{r versions}
+sessionInfo()
+```
