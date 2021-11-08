@@ -630,67 +630,19 @@ df_wide_rt</code></pre>
 </div>
 </div>
 </div>
-<div id="data-pre-processing" class="section level1" number="9">
-<h1 number="9"><span class="header-section-number">9</span> Data pre-processing</h1>
-<div id="sensitivity-d" class="section level2" number="9.1">
-<h2 number="9.1"><span class="header-section-number">9.1</span> Sensitivity d’</h2>
-<pre class="r"><code>df_d &lt;- df_3sd %&gt;% 
-  ungroup() %&gt;% 
-  mutate(isSame = response == &quot;s&quot;) %&gt;% # if the response is &quot;same&quot;
-  select(subjcode, valence, congruency, alignment, answer, isSame) %&gt;% 
-  group_by(subjcode, valence, congruency, alignment, answer) %&gt;% 
-  summarize(count = n(),
-            same_corr = (sum(isSame)+0.5)/(count+1),
-            .groups = &quot;drop&quot;) %&gt;% # Snodgrass &amp; Corwin (1988)
-  ungroup() %&gt;% 
-  pivot_wider(c(subjcode, valence, congruency, alignment),
-              names_from=answer, values_from=same_corr) %&gt;% 
-  mutate(z_hit = qnorm(same),
-         z_FA = qnorm(diff),
-         d = z_hit- z_FA) %&gt;% 
-  select(subjcode, valence, congruency, alignment, d)
-
-head(df_d)</code></pre>
-<div data-pagedtable="false">
-<script data-pagedtable-source type="application/json">
-{"columns":[{"label":["subjcode"],"name":[1],"type":["int"],"align":["right"]},{"label":["valence"],"name":[2],"type":["chr"],"align":["left"]},{"label":["congruency"],"name":[3],"type":["chr"],"align":["left"]},{"label":["alignment"],"name":[4],"type":["chr"],"align":["left"]},{"label":["d"],"name":[5],"type":["dbl"],"align":["right"]}],"data":[{"1":"1","2":"negative","3":"congruent","4":"aligned","5":"3.335300"},{"1":"1","2":"negative","3":"congruent","4":"misaligned","5":"3.570955"},{"1":"1","2":"negative","3":"incongruent","4":"aligned","5":"4.072835"},{"1":"1","2":"negative","3":"incongruent","4":"misaligned","5":"3.591608"},{"1":"1","2":"positive","3":"congruent","4":"aligned","5":"3.591608"},{"1":"1","2":"positive","3":"congruent","4":"misaligned","5":"3.591608"}],"options":{"columns":{"min":{},"max":[10]},"rows":{"min":[10],"max":[10]},"pages":{}}}
-  </script>
+<div id="save-as-csv-file" class="section level1" number="9">
+<h1 number="9"><span class="header-section-number">9</span> Save as csv file</h1>
+<pre class="r"><code># save the wide data
+write_csv(df_wide_acc, &quot;acc_wide.csv&quot;)
+write_csv(df_wide_rt, &quot;rt_wide.csv&quot;)</code></pre>
 </div>
+<div id="resources" class="section level1" number="10">
+<h1 number="10"><span class="header-section-number">10</span> Resources</h1>
+<p>Help documents (e.g., <code>?write_csv</code>)<br />
+<a href="https://www.tidyverse.org" class="uri">https://www.tidyverse.org</a></p>
 </div>
-<div id="correct-response-times" class="section level2" number="9.2">
-<h2 number="9.2"><span class="header-section-number">9.2</span> Correct response times</h2>
-<pre class="r"><code>df_rt &lt;- df_3sd %&gt;% 
-  ungroup() %&gt;% 
-  select(subjcode, valence, congruency, alignment, correct, RT) %&gt;% 
-  filter(correct==1) %&gt;% 
-  group_by(subjcode, valence, congruency, alignment) %&gt;% 
-  summarize(meanRT = mean(RT),
-            logRT = mean(log(RT)),
-            .groups = &quot;drop&quot;)
-
-head(df_rt)</code></pre>
-<div data-pagedtable="false">
-<script data-pagedtable-source type="application/json">
-{"columns":[{"label":["subjcode"],"name":[1],"type":["int"],"align":["right"]},{"label":["valence"],"name":[2],"type":["chr"],"align":["left"]},{"label":["congruency"],"name":[3],"type":["chr"],"align":["left"]},{"label":["alignment"],"name":[4],"type":["chr"],"align":["left"]},{"label":["meanRT"],"name":[5],"type":["dbl"],"align":["right"]},{"label":["logRT"],"name":[6],"type":["dbl"],"align":["right"]}],"data":[{"1":"1","2":"negative","3":"congruent","4":"aligned","5":"672.9565","6":"6.504507"},{"1":"1","2":"negative","3":"congruent","4":"misaligned","5":"641.5111","6":"6.455562"},{"1":"1","2":"negative","3":"incongruent","4":"aligned","5":"695.2609","6":"6.532093"},{"1":"1","2":"negative","3":"incongruent","4":"misaligned","5":"653.3913","6":"6.465962"},{"1":"1","2":"positive","3":"congruent","4":"aligned","5":"666.3913","6":"6.492532"},{"1":"1","2":"positive","3":"congruent","4":"misaligned","5":"669.2826","6":"6.490645"}],"options":{"columns":{"min":{},"max":[10]},"rows":{"min":[10],"max":[10]},"pages":{}}}
-  </script>
-</div>
-</div>
-<div id="accuracy" class="section level2" number="9.3">
-<h2 number="9.3"><span class="header-section-number">9.3</span> Accuracy</h2>
-<pre class="r"><code>df_acc &lt;- df_3sd %&gt;% 
-  group_by(subjcode, valence, congruency, alignment) %&gt;% 
-  summarize(acc = mean(correct), 
-            .groups = &quot;drop&quot;)
-head(df_acc)</code></pre>
-<div data-pagedtable="false">
-<script data-pagedtable-source type="application/json">
-{"columns":[{"label":["subjcode"],"name":[1],"type":["int"],"align":["right"]},{"label":["valence"],"name":[2],"type":["chr"],"align":["left"]},{"label":["congruency"],"name":[3],"type":["chr"],"align":["left"]},{"label":["alignment"],"name":[4],"type":["chr"],"align":["left"]},{"label":["acc"],"name":[5],"type":["dbl"],"align":["right"]}],"data":[{"1":"1","2":"negative","3":"congruent","4":"aligned","5":"0.9583333"},{"1":"1","2":"negative","3":"congruent","4":"misaligned","5":"0.9782609"},{"1":"1","2":"negative","3":"incongruent","4":"aligned","5":"1.0000000"},{"1":"1","2":"negative","3":"incongruent","4":"misaligned","5":"0.9787234"},{"1":"1","2":"positive","3":"congruent","4":"aligned","5":"0.9787234"},{"1":"1","2":"positive","3":"congruent","4":"misaligned","5":"0.9787234"}],"options":{"columns":{"min":{},"max":[10]},"rows":{"min":[10],"max":[10]},"pages":{}}}
-  </script>
-</div>
-</div>
-</div>
-<div id="versions-of-packages-used" class="section level1" number="10">
-<h1 number="10"><span class="header-section-number">10</span> Versions of packages used</h1>
+<div id="versions-of-packages-used" class="section level1" number="11">
+<h1 number="11"><span class="header-section-number">11</span> Versions of packages used</h1>
 <pre class="r"><code>sessionInfo()</code></pre>
 <pre><code>## R version 4.0.5 (2021-03-31)
 ## Platform: x86_64-apple-darwin17.0 (64-bit)

@@ -262,6 +262,17 @@ df_wide_rt <- df_long_rt %>%
 df_wide_rt
 ```
 
+# Save as csv file
+```{r}
+# save the wide data
+write_csv(df_wide_acc, "acc_wide.csv")
+write_csv(df_wide_rt, "rt_wide.csv")
+```
+
+# Resources
+Help documents (e.g., `?write_csv`)  
+https://www.tidyverse.org
+
 # Versions of packages used
 ```{r versions}
 sessionInfo()
