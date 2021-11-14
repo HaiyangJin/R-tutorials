@@ -1,5 +1,5 @@
 ---
-title: "Composite Word Project"
+title: "Tidy up data with R(Studio)"
 author: "[Haiyang Jin](https://haiyangjin.github.io/)"
 date: "`r format(Sys.time(), '%b %d %Y')`"
 output:
@@ -20,24 +20,35 @@ if (!require("tidyverse")) {install.packages("tidyverse")}
 ```
 
 ```{r setup}
-# load library
+# load tidyverse
+# more information on tidyverse could be found: https://www.tidyverse.org
 library(tidyverse)
 ```
 
 # Read csv into R (What we have)
+Let us read one csv file into R(Studio):
 ```{r message=FALSE}
-# "<-" is comparable to "="
+# "<-" is similar to "=" in other languages
 df_subj1 <- read_csv("data/238803_210821_111114 output.csv") 
-head(df_subj1)
+head(df_subj1) # show the first six rows of df_subj1
 ```
+The data is part of a composite word project and the independent variables (in this data file) were:  
+- **Valence** (`valence`): positive vs. negative  
+- **Congruency** (`congruency`): congruent vs. incongruent  
+- **Alignment** (`alignment`): aligned vs. misaligned  
+- (**Answer** (`corre_response`): same vs. different)  
+
+The dependent variables were:
+- **Behavioral responses** (`response`)  
+- **Response times** (`RT`)
 
 # What we want
 
-Long vs. wide format
+Tidied up data could be saved as long or wide format. Typically, long format is needed in R whereas wide format is needed in SPSS, [Jamovi](https://www.jamovi.org), [JASP](https://jasp-stats.org) etc.
 
 ## Long format
 
-Each row is one trial/participant, and columns are for different information.
+Each row is one trial/participant, and columns are different variables/information.
 
 SubjCode | Age | Gender | IV1 | IV2 | DV1 | DV2
 :--: | :--: | :--: | :--: | :--: | :--: | :--:
@@ -60,6 +71,13 @@ SubjCode | Age | Gender | a1b1 | a1b2 | a2b1 | a2b2
 sub-001 | 20 | M | 840 | 740 | 800 | 825
 sub-002 | 22 | F | 800 | 650 | 700 | 875
 
+<br>
+
+**Question**: is `df_subj1` in a long or wide format?
+```{r}
+head(df_subj1, 10)
+```
+
 
 # What we need to do (from "what we have" to "what we want")?
 
@@ -70,9 +88,10 @@ sub-002 | 22 | F | 800 | 650 | 700 | 875
 4. Reorder/re-arrange columns;
 5. Remove trials whose RT is too short (or "too long");
 6. Calculate means of each condition for each participant;
-7. Remove participants who responded "too slow" or "too quick";
+7. Remove participants who responded "too slow" or "too fast";
 8. Conversion between long and wide formats;
-9. ...
+9. Save the final data as csv files;
+10. ...
 
 # Load data
 
@@ -83,23 +102,23 @@ head(allcsv)
 ```
 
 ```{r message=FALSE}
-# read all files in once
-# read_csv("data/551155_210821_114658 output.csv") 
+# read all files at once
+# read_csv("data/551155_210821_114658 output.csv")  # what we used earlier for reading a single file
 df_all <- map_dfr(allcsv, ~read_csv(file.path("data", .x)))
 head(df_all)
 ```
 
 ```{r}
-# filter out trials with "space" response
+# filter out trials with "space" response, which were not our interests
 df_a_filtered <- filter(df_all, response != "space")
 head(df_a_filtered)
 ```
 
 
 ```{r}
-# create a SubjCode column
+# create a subjcode column
 df_af_subj <- mutate(df_a_filtered,
-                  subjcode = as.integer(as_factor(prolific_num)))
+                     subjcode = as.integer(as_factor(prolific_num)))
 head(df_af_subj)
 ```
 
@@ -121,70 +140,39 @@ df_raw <- list.files(path="data/", pattern="*.csv") %>% # all data file names
   filter(response != "space")  %>%  # remove trials whose responses were "space"
   mutate(subjcode = as.integer(as_factor(prolific_num)), # make participant code
          answer = corre_response) %>% # rename corre_response as answer
+  # only select columns we want
   select(subjcode, valence, congruency, alignment, answer, response, RT, correct)
 
-head(df_raw)
+head(df_raw, 10)
 ```
 
 # Remove outliers
 
-- At the participant level
-  - Accuracy is above 65%;
-  - RT is within three SD (across participants);
 - At the trial level
+  - Only keep trials whose RT were longer than 200 ms;
   - Only keep trials whose RT were within three SD (for each participant separately);
+- At the participant level
   - Only keep participants where the ratio of removed trials were below 15%;
-
-## At the participant level
-Participants whose overall accuracy was below 65% were removed.
-```{r}
-df_acc <- df_raw %>% 
-  group_by(subjcode) %>% # perform following calculation for each participant separately
-  summarize(mean_acc = mean(correct)) # mean accuracy
-
-df_subj_65 <- filter(df_acc, mean_acc >= .65)
-
-df_acc %>% 
-  filter(mean_acc < 0.65) 
-```
-As a result, 1 participant was removed due to its overall accuracy below 65%.
-
-Participants whose mean response times (RT) were outside **three** standard deviations among participants in the same experiment were removed.
-```{r }
-df_subj <- df_raw %>% 
-  filter(RT > 200) %>% # only keep trials whose RT is longer than 200
-  group_by(subjcode) %>% # perform following calculation for each participant separately
-  summarize(meanRT = mean(RT)) %>% # calculate the mean RT 
-  mutate(z_meanRT = scale(meanRT))  # calculate Z-value for each participant separately
-
-df_subj_3SD <- filter(df_subj, z_meanRT >= -3 & z_meanRT < 3 )
-
-df_subj %>% 
-  filter(z_meanRT > 3 | z_meanRT < -3)  #  
-```
-One novice were removed due to mean RT being outside 3SD.
-
-```{r}
-# participant list after removing outlier (meet criteria for both accuracy and RT)
-subj_list <- intersect(unique(df_subj_65$subjcode),
-                       unique(df_subj_3SD$subjcode))
-```
-
+  - Only keep participants whose Accuracy is above 65%;
+  - Only keep participants whose RT is within three SD (across participants);
 
 ## At the trial level
-Trials whose RT were outside three standard deviations for each participant were removed.
+Trials whose RT were not longer than 200 ms or outside **three** standard deviations within each participant were removed.
 ```{r }
 df_3sd <- df_raw %>% 
-  filter(subjcode %in% subj_list) %>% # remove participants
+  filter(RT > 200) %>% # only keep trials whose RT is longer than 200
   group_by(subjcode) %>% # perform following calculation for each participant separately
-  filter(RT > 200) %>% # only keep trials whose RT is larger than 200
   mutate(z_RT = scale(RT),  # calculate Z-value for each participant separately
-         N_total = n()) %>% # number of trials in total
+         N_total = n()) %>% # number of trials in each group
   filter(z_RT >= -3 & z_RT <= 3) %>% 
   mutate(N_remain = n()) %>%  # number of trials within 3 SD 
   ungroup() # remove any grouping
 ```
 
+
+## At the participant level
+
+### Ratio of removed trials
 ```{r }
 df_remove <- df_3sd %>% 
   select(subjcode, N_total, N_remain) %>% 
@@ -195,83 +183,138 @@ df_remove <- df_3sd %>%
 df_remove %>% 
   filter(N_ratio > 0.15)
 ```
-For all participants, the ratio of outlier trials were below 15%. Therefore, no participants were removed.
+For all participants, the ratio of outlier trials were below 15%. Therefore, no participants were removed here.
 
 ```{r}
 df_remove %>% 
   summarize(mean_N_remove = mean(N_remove),
             mean_N_ratio = mean(N_ratio))
 ```
+In summary, 5.92 trials were removed for each subject on average, which were about 1.5% of all trials.
+
+### Overall accuracy
+Participants whose overall accuracy was below 65% were removed.
+```{r}
+df_acc <- df_3sd %>%
+  group_by(subjcode) %>% # perform following calculation for each participant separately
+  summarize(mean_acc = mean(correct)) # mean accuracy
+
+df_subj_65 <- filter(df_acc, mean_acc >= .65)
+
+df_acc %>% 
+  filter(mean_acc < 0.65) 
+```
+As a result, one participant was removed due to its overall accuracy below 65%.
+
+### Response times within three SD
+Participants whose mean response times (RT) were outside **three** standard deviations among participants were removed.
+```{r }
+df_subj <- df_3sd %>% 
+  group_by(subjcode) %>% # perform following calculation for each participant separately
+  summarize(meanRT = mean(RT)) %>% # calculate the mean RT 
+  mutate(z_meanRT = scale(meanRT))  # calculate Z-value for each participant separately
+
+df_subj_3SD <- filter(df_subj, z_meanRT >= -3 & z_meanRT < 3 )
+
+df_subj %>% 
+  filter(z_meanRT > 3 | z_meanRT < -3)  # show subjects outside 3SD
+```
+One participant was removed due to mean RT being outside 3SD.
 
 ## Number of remaining participants
+```{r}
+# participant list after removing outlier (meet criteria for both accuracy and RT)
+subj_list <- intersect(unique(df_subj_65$subjcode),
+                       unique(df_subj_3SD$subjcode))
+
+# only keep subjects who are in subj_list
+df_clean <- df_3sd %>% 
+  filter(subjcode %in% subj_list)
+head(df_clean, 10)
+```
+
 Number of participants for each experiment (after removing participants): 
 ```{r}
-df_3sd$subjcode %>% # all values in subjcode
+df_clean$subjcode %>% # all values in subjcode
   unique() %>% # find all unique values
   length() # how many unique values
 ```
 In summary:  
-One novice were removed due to mean RT being outside 3SD. Their accuracy was also below 65%.
+One participant was removed in total (due to mean RT being outside 3SD and accuracy being below 65%).
 
 # "Clean" data
-
 ## Long format
 
 Each row is one trial:
 ```{r}
-head(df_3sd)
+df_clean
 ```
 
 Each row is one participant and each column is one variable (could be independent or dependent variables):
 ```{r}
-df_long_acc <- df_3sd %>% 
+# Accuracy for each condition
+df_long_acc <- df_clean %>% 
+  # perform following steps in each group separately
   group_by(subjcode, valence, congruency, alignment) %>% 
-  summarize(acc = mean(correct),
-            N_trial = n(),
+  summarize(acc = mean(correct), # accuracy
+            N_trial = n(),       # number of trials in each condition
             .groups = "drop")
 head(df_long_acc)
 ```
 
 ```{r}
-df_long_rt <- df_3sd %>% 
+# (Correct) response times for each condition
+df_long_rt <- df_clean %>% 
   filter(correct == 1) %>% # only keep correct trials
   group_by(subjcode, valence, congruency, alignment) %>% 
-  summarize(meanRT = mean(RT),
-            N_trial = n(),
+  summarize(meanRT = mean(RT), # mean correct response times
+            N_trial = n(),     # number of trials in each group
             .groups = "drop")
 head(df_long_rt)
 ```
 
 ## Wide format
-Each row is one participant and each column is one level of independent variables:
+Each row is one participant and each column is one level of the combined independent variables:
 ```{r}
+# convert Accuracy from long into wide format
 df_wide_acc <- df_long_acc %>%
   pivot_wider(id_cols = subjcode,
-              names_from = c(valence, congruency, alignment),
+              names_from = c(valence, congruency, alignment), # independent variables
               names_sep = "_",
-              values_from = acc)
+              values_from = acc) # dependent variables
 df_wide_acc
 ```
 
 ```{r}
+# convert correct response times from long into wide format
 df_wide_rt <- df_long_rt %>% 
   pivot_wider(id_cols = subjcode,
-              names_from = c(valence, congruency, alignment),
+              names_from = c(valence, congruency, alignment), # independent variables
               names_sep = "_",
-              values_from = meanRT)
+              values_from = meanRT) # dependent variables
 df_wide_rt
 ```
 
 # Save as csv file
 ```{r}
-# save the wide data
+# save the wide data as csv
 write_csv(df_wide_acc, "acc_wide.csv")
 write_csv(df_wide_rt, "rt_wide.csv")
 ```
 
-# Resources
-Help documents (e.g., `?write_csv`)  
-https://www.tidyverse.org
+# Summary
+
+0. Read data files into R (`read_csv()`; `map_dfr()`);
+1. Remove some rows (`filter()`);
+2. Remove some columns (`select()`);
+3. Rename columns (`mutate()`);
+4. Reorder/re-arrange columns (`select()`);
+5. Remove trials whose RT is too short (or "too long") (`scale()`; `filter()`);
+6. Calculate means of each condition for each participant (`group_by()`; `summarize()`);
+7. Remove participants who responded "too slow" or "too fast" (`scale()`; `filter()`);
+8. Conversion between long and wide formats (`pivot_longer()`; `pivot_wider()`);
+9. Save the final data (`write_csv()`);
+10. Help documents (e.g., `?write_csv`) and [tidyverse website](https://www.tidyverse.org).
 
 # Versions of packages used
 ```{r versions}
