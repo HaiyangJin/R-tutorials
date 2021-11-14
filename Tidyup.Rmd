@@ -114,7 +114,6 @@ df_a_filtered <- filter(df_all, response != "space")
 head(df_a_filtered)
 ```
 
-
 ```{r}
 # create a subjcode column
 df_af_subj <- mutate(df_a_filtered,
@@ -168,7 +167,6 @@ df_3sd <- df_raw %>%
   mutate(N_remain = n()) %>%  # number of trials within 3 SD 
   ungroup() # remove any grouping
 ```
-
 
 ## At the participant level
 

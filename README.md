@@ -1,6 +1,6 @@
 # Tutorial for tidying up data with R(Studio)
 
-This tutorial (briefly) introduces the long and wide format of tidied up data and employs a concrete exmaple to convert raw data into the desired long and wide formats (although the data used are not avaiable publicly due to copyrights; at least currently).
+This tutorial (briefly) introduces the long and wide format of tidied up data and employs a concrete example to convert raw data into the desired long and wide formats (although the data used are not available publicly due to copyrights; at least currently).
 
 <br>
 
