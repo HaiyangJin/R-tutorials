@@ -57,5 +57,5 @@ docs/
 
 # brmfit
 brmfit/
-data/*.csv
-*.csv
+/*.csv
+

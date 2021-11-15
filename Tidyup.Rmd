@@ -29,16 +29,17 @@ library(tidyverse)
 Let us read one csv file into R(Studio):
 ```{r message=FALSE}
 # "<-" is similar to "=" in other languages
-df_subj1 <- read_csv("data/238803_210821_111114 output.csv") 
+df_subj1 <- read_csv("data/novices/238803_210821_111114 output.csv") 
 head(df_subj1) # show the first six rows of df_subj1
 ```
 The data is part of a composite word project and the independent variables (in this data file) were:  
+- (**Expertise**: expert vs. novice)  
 - **Valence** (`valence`): positive vs. negative  
 - **Congruency** (`congruency`): congruent vs. incongruent  
 - **Alignment** (`alignment`): aligned vs. misaligned  
 - (**Answer** (`corre_response`): same vs. different)  
 
-The dependent variables were:
+The dependent variables were:  
 - **Behavioral responses** (`response`)  
 - **Response times** (`RT`)
 
@@ -96,15 +97,15 @@ head(df_subj1, 10)
 # Load data
 
 ```{r}
-# filenames for all csv files in data/
-allcsv <- list.files(path="data/", pattern="*.csv")
+# filenames for all csv files in data/novices
+allcsv <- list.files(path="data/novices", pattern="*.csv")
 head(allcsv)
 ```
 
 ```{r message=FALSE}
 # read all files at once
 # read_csv("data/551155_210821_114658 output.csv")  # what we used earlier for reading a single file
-df_all <- map_dfr(allcsv, ~read_csv(file.path("data", .x)))
+df_all <- map_dfr(allcsv, ~read_csv(file.path("data/novices", .x)))
 head(df_all)
 ```
 
@@ -125,24 +126,52 @@ head(df_af_subj)
 
 ```{r message=FALSE}
 # comparable codes to the above steps
-df_tmp <- list.files(path="data/", pattern="*.csv") %>% 
+df_tmp <- list.files(path="data/novices", pattern="*.csv") %>% 
   # map_dfr(., ~read_csv(file.path("data", .x))) %>% 
-  map_dfr(~read_csv(file.path("data", .x))) %>% 
+  map_dfr(~read_csv(file.path("data/novices", .x))) %>% 
   filter(response != "space")  %>% 
   mutate(subjcode = as.integer(as_factor(prolific_num))) 
 head(df_tmp)
 ```
 
+# Load all data
+Load data for both experts and novices (separately):
 ```{r message=FALSE}
-df_raw <- list.files(path="data/", pattern="*.csv") %>% # all data file names
-  map_dfr(~read_csv(file.path("data", .x))) %>% # read all these files
+# data for experts
+df_expert <- list.files(path="data/experts", pattern="*.csv") %>% 
+  map_dfr(~read_csv(file.path("data/experts", .x))) %>% 
+  mutate(subjcode = as.integer(as_factor(prolific_num)),
+         subjcode = subjcode + 100,
+         expertise = "expert") 
+```
+
+```{r message=FALSE}
+# data for novices
+df_novice <- list.files(path="data/novices", pattern="*.csv") %>% 
+  map_dfr(~read_csv(file.path("data/novices", .x))) %>% 
+  mutate(subjcode = as.integer(as_factor(prolific_num)),
+         subjcode = subjcode + 200,
+         expertise = "novice") 
+```
+
+```{r}
+# combine expert and novice data
+df_raw <- rbind(df_expert, df_novice) %>% # combine data vertically/row
   filter(response != "space")  %>%  # remove trials whose responses were "space"
-  mutate(subjcode = as.integer(as_factor(prolific_num)), # make participant code
-         answer = corre_response) %>% # rename corre_response as answer
+  mutate(answer = corre_response) %>% # rename corre_response as answer
   # only select columns we want
-  select(subjcode, valence, congruency, alignment, answer, response, RT, correct)
+  select(subjcode, expertise, valence, congruency, alignment, answer, response, RT, correct)
 
 head(df_raw, 10)
+```
+
+Number of data files in each group:
+```{r}
+df_raw %>% 
+  select(subjcode, expertise) %>% 
+  distinct() %>% # find all unique rows
+  group_by(expertise) %>% 
+  summarize(n_subj = n())
 ```
 
 # Remove outliers
@@ -160,7 +189,7 @@ Trials whose RT were not longer than 200 ms or outside **three** standard deviat
 ```{r }
 df_3sd <- df_raw %>% 
   filter(RT > 200) %>% # only keep trials whose RT is longer than 200
-  group_by(subjcode) %>% # perform following calculation for each participant separately
+  group_by(subjcode, expertise) %>% # perform following calculation for each participant separately
   mutate(z_RT = scale(RT),  # calculate Z-value for each participant separately
          N_total = n()) %>% # number of trials in each group
   filter(z_RT >= -3 & z_RT <= 3) %>% 
@@ -173,8 +202,8 @@ df_3sd <- df_raw %>%
 ### Ratio of removed trials
 ```{r }
 df_remove <- df_3sd %>% 
-  select(subjcode, N_total, N_remain) %>% 
-  distinct() %>% # find all the unique rows
+  select(subjcode, expertise, N_total, N_remain) %>% 
+  distinct() %>% # find all unique rows
   mutate(N_remove = N_total - N_remain,
          N_ratio = N_remove/N_total)
 
@@ -188,28 +217,29 @@ df_remove %>%
   summarize(mean_N_remove = mean(N_remove),
             mean_N_ratio = mean(N_ratio))
 ```
-In summary, 5.92 trials were removed for each subject on average, which were about 1.5% of all trials.
+On average, 5.57 trials were removed for each subject, which were about 1.5% of all trials.
 
 ### Overall accuracy
 Participants whose overall accuracy was below 65% were removed.
 ```{r}
 df_acc <- df_3sd %>%
-  group_by(subjcode) %>% # perform following calculation for each participant separately
-  summarize(mean_acc = mean(correct)) # mean accuracy
+  group_by(subjcode, expertise) %>% # perform following calculation for each participant separately
+  summarize(mean_acc = mean(correct),
+            .groups = "drop") # mean accuracy
 
 df_subj_65 <- filter(df_acc, mean_acc >= .65)
 
 df_acc %>% 
   filter(mean_acc < 0.65) 
 ```
-As a result, one participant was removed due to its overall accuracy below 65%.
+As a result, one novice was removed due to its overall accuracy below 65%.
 
 ### Response times within three SD
 Participants whose mean response times (RT) were outside **three** standard deviations among participants were removed.
 ```{r }
 df_subj <- df_3sd %>% 
-  group_by(subjcode) %>% # perform following calculation for each participant separately
-  summarize(meanRT = mean(RT)) %>% # calculate the mean RT 
+  group_by(subjcode, expertise) %>% # perform following calculation for each participant separately
+  summarize(meanRT = mean(RT), .groups = "drop") %>% # calculate the mean RT 
   mutate(z_meanRT = scale(meanRT))  # calculate Z-value for each participant separately
 
 df_subj_3SD <- filter(df_subj, z_meanRT >= -3 & z_meanRT < 3 )
@@ -217,7 +247,7 @@ df_subj_3SD <- filter(df_subj, z_meanRT >= -3 & z_meanRT < 3 )
 df_subj %>% 
   filter(z_meanRT > 3 | z_meanRT < -3)  # show subjects outside 3SD
 ```
-One participant was removed due to mean RT being outside 3SD.
+One novice was removed due to mean RT being outside 3SD.
 
 ## Number of remaining participants
 ```{r}
@@ -233,12 +263,14 @@ head(df_clean, 10)
 
 Number of participants for each experiment (after removing participants): 
 ```{r}
-df_clean$subjcode %>% # all values in subjcode
-  unique() %>% # find all unique values
-  length() # how many unique values
+df_clean %>%
+  select(subjcode, expertise) %>% 
+  distinct() %>% # find all unique rows
+  group_by(expertise) %>% 
+  summarize(n_subj = n())
 ```
 In summary:  
-One participant was removed in total (due to mean RT being outside 3SD and accuracy being below 65%).
+One novice was removed in total (due to mean RT being outside 3SD and accuracy being below 65%).
 
 # "Clean" data
 ## Long format
@@ -253,7 +285,7 @@ Each row is one participant and each column is one variable (could be independen
 # Accuracy for each condition
 df_long_acc <- df_clean %>% 
   # perform following steps in each group separately
-  group_by(subjcode, valence, congruency, alignment) %>% 
+  group_by(subjcode, expertise, valence, congruency, alignment) %>% 
   summarize(acc = mean(correct), # accuracy
             N_trial = n(),       # number of trials in each condition
             .groups = "drop")
@@ -264,7 +296,7 @@ head(df_long_acc)
 # (Correct) response times for each condition
 df_long_rt <- df_clean %>% 
   filter(correct == 1) %>% # only keep correct trials
-  group_by(subjcode, valence, congruency, alignment) %>% 
+  group_by(subjcode, expertise, valence, congruency, alignment) %>% 
   summarize(meanRT = mean(RT), # mean correct response times
             N_trial = n(),     # number of trials in each group
             .groups = "drop")
@@ -276,8 +308,8 @@ Each row is one participant and each column is one level of the combined indepen
 ```{r}
 # convert Accuracy from long into wide format
 df_wide_acc <- df_long_acc %>%
-  pivot_wider(id_cols = subjcode,
-              names_from = c(valence, congruency, alignment), # independent variables
+  pivot_wider(id_cols = c(subjcode, expertise), # between-subj IV
+              names_from = c(valence, congruency, alignment), # within-subj IVs
               names_sep = "_",
               values_from = acc) # dependent variables
 df_wide_acc
@@ -286,8 +318,8 @@ df_wide_acc
 ```{r}
 # convert correct response times from long into wide format
 df_wide_rt <- df_long_rt %>% 
-  pivot_wider(id_cols = subjcode,
-              names_from = c(valence, congruency, alignment), # independent variables
+  pivot_wider(id_cols = c(subjcode, expertise), # between-subj IV
+              names_from = c(valence, congruency, alignment), # within-subj IVs
               names_sep = "_",
               values_from = meanRT) # dependent variables
 df_wide_rt
