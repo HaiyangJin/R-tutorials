@@ -1,0 +1,660 @@
+---
+title: "Data Analysis for the Composite Face Task (108)"
+author: "Haiyang Jin (haiyang.jin@auckland.ac.nz)"
+date:  "`r format(Sys.time(), '%d-%m-%Y')`"
+output: 
+  html_document:
+    number_sections: true
+    toc: true
+    toc_depth: 2
+version: "1.0"
+---
+
+```{r setup and load the related libraries, include=FALSE}
+## set chunk options
+knitr::opts_chunk$set(echo = FALSE)
+knitr::opts_chunk$set(include = TRUE)
+knitr::opts_chunk$set(warning = FALSE)
+knitr::opts_chunk$set(comment = "#") # (NA, to remove all hashes)
+
+## load libraries
+# libraries for cleaning data
+if (!require(dplyr)) {install.packages("dplyr"); library(dplyr)}
+if (!require(tidyr)) {install.packages("tidyr"); library(tidyr)}
+if (!require(magrittr)) {install.packages("magrittr"); library(magrittr)}
+# library for analyzing data (descriptive and ANOVA)
+if (!require(ez)) {install.packages("ez"); library(ez)}
+# library for adding the partial eta squared and ICs
+if (!require(MBESS)) {install.packages("MBESS"); library(MBESS)}
+# library for Post hoc analysis
+if (!require(lsmeans)) {install.packages("lsmeans"); library(lsmeans)}
+if (!require(nlme)) {install.packages("nlme"); library(nlme)}
+if (!require(multcomp)) {install.packages("multcomp"); library(multcomp)}
+# library for plotting
+if (!require(ggplot2)) {install.packages("ggplot2"); library(ggplot2)}
+if (!require(ggsignif)) {install.packages("ggsignif"); library(ggsignif)}
+
+## create a function called ezANOVAPlus to calculate the partial eta squared and ICs
+ezANOVAPlus <- function(df) {
+  # This function adds the partial eta squares and CIs to the reuslts of ezANOVA.
+  # This function requires library(ez) and library(MBEss).
+  
+  # calculate the partial eta Squares for the ANOVA results
+  df$ANOVA$parEtaSqu <- df$ANOVA$SSn/(df$ANOVA$SSn+df$ANOVA$SSd)
+  
+  # calculate the CIs
+  lowEtaSqu <- c()  # lower eta Squared
+  uppEtaSqu <- c()  # upper eta Squared
+  for (cR in 1:nrow(df$ANOVA)) {
+    Lims <- conf.limits.ncf(F.value = df$ANOVA$F[cR], conf.level = 0.95, 
+                            df.1 <- df$ANOVA$DFn[cR], df.2 <- df$ANOVA$DFd[cR])
+    Lower.lim <- Lims$Lower.Limit/(Lims$Lower.Limit + df.1 + df.2 + 1)
+    Upper.lim <- Lims$Upper.Limit/(Lims$Upper.Limit + df.1 + df.2 + 1)
+    if (is.na(Lower.lim)) {Lower.lim <- 0}
+    if (is.na(Upper.lim)) {Upper.lim <- 1}
+    lowEtaSqu <- c(lowEtaSqu,Lower.lim)
+    uppEtaSqu <- c(uppEtaSqu,Upper.lim)
+  }
+  df$ANOVA$lowEtaSqu <- lowEtaSqu  # partialetasquared.lower
+  df$ANOVA$uppEtaSqu <- uppEtaSqu  # partialetasquared.upper
+  return(df)
+}
+
+## create a function called ezStatsPlus to calculate the SE, CI, hi(gh), lo(w).
+ezStatsPlus <- function(df){
+  df %>%
+    mutate(SE = SD / sqrt(N)) %>%  # add standard error
+    mutate(hi = Mean + SE) %>% #
+    mutate(lo = Mean - SE) %>%
+    mutate(CI = SE * qt(0.975,N)) %>%  # calculation 1 
+    mutate(ezCI = FLSD / sqrt(2))   # calculation 2
+}
+
+## round all the decimals to N "digits" in a data frame
+round_df <- function(df, digits) {
+  # check one column is decimal
+  nums <- vapply(df, function(x) is.numeric(x) && (x %% 1 != 0), FUN.VALUE = logical(1))
+  # round the decimals
+  df[,nums] <- round(df[,nums], digits = digits)
+  (df)
+}
+    
+```
+
+This is a R markdown file to analyze the data for the <b>composite face task (complete design)</b> with <b>catch trials</b>. (Experiment number is ) 
+
+```{r load the data file into R, include = FALSE}
+dataFile <- ""
+
+if (dataFile == "")  # if there is no data filename, open a window to find the data
+  {dataFile <- file.choose()}
+
+rawData <- {
+  dataFile %>%
+    read.csv(header = TRUE) %>%  # read the data file
+    tbl_df # save the data frame as the format in library(dplyr)
+}
+
+# participants pressed two keys for one trial. Reagrd it as a wrong answer and replace with mean RT in that condition
+rowNum.NA <- which(is.na(rawData$isCorrect), arr.ind=TRUE)  # the row number of NA
+
+rawDataAcc <- filter(rawData, Experiment == rawData$Experiment[rowNum.NA] &
+                       Participant == rawData$Participant[rowNum.NA] & 
+                       Condition == rawData$Condition[rowNum.NA] & 
+                       Congruency == rawData$Congruency[rowNum.NA] & 
+                       Alignment == rawData$Alignment[rowNum.NA] & 
+                       SameDifferent == rawData$SameDifferent[rowNum.NA]) 
+rawData[rowNum.NA, "isCorrect"] = mean(rawDataAcc$isCorrect, na.rm = TRUE)
+
+rawDataRT <- filter(rawData, Experiment == rawData$Experiment[rowNum.NA] &
+                       Participant == rawData$Participant[rowNum.NA] & 
+                       Condition == rawData$Condition[rowNum.NA] & 
+                       Congruency == rawData$Congruency[rowNum.NA] & 
+                       Alignment == rawData$Alignment[rowNum.NA] &
+                       isCorrect == 1) 
+rawData[rowNum.NA, "reactionTime"] = mean(rawDataRT$reactionTime)
+
+
+rawData[,'Participant'] <- as.character(rawData$Participant)  # save the Participant as character
+
+# shorten the experiment names
+rawData$Experiment <- as.character(rawData$Experiment)
+expLevel.old <- unique(rawData$Experiment)  # "108_CF_CFS_Catch_identity" "108_CF_Mono_Catch_identity"  "108_Mono_Catch"
+expLevel.new <- (c("CFS", "monocular", "Catch"))
+for (iExpLevel in 1:length(expLevel.old)) {
+  rawData$Experiment[rawData$Experiment == expLevel.old[iExpLevel]] <- expLevel.new[iExpLevel]
+}
+rawData$Experiment <- factor(rawData$Experiment, levels = expLevel.new)
+
+rawData
+
+```
+The raw data was loaded from the file named `r dataFile`. 
+And the raw data looks like:
+```{r}
+rawData
+```
+
+
+# Sensitivity for the Composite Face Task
+```{r clean accuracy data for Composite Face Task, include = FALSE} 
+cf.Acc.Data <- {
+  rawData %>%
+    filter(Condition == "Complete") %>%  # select the trials for CF task (rows)
+    group_by(Participant, Experiment, Congruency, Alignment, SameDifferent) %>%  # the data was divided (group) by participant and independent variables
+    summarize(Acc = mean(isCorrect), numTrials = n())  %>% # get the mean of ACC and RT in every condition
+    arrange(Participant, Experiment, Congruency, Alignment, desc(SameDifferent)) # reorder
+}
+cf.Acc.Data
+```
+
+```{r calculate the d prime for Composite Face Task, include = FALSE}
+# replace 1 with (2n-1)/2n
+is1 = cf.Acc.Data$Acc == 1  # select the rows that the acc equals 1
+cf.Acc.Data$Acc[is1] = (cf.Acc.Data$numTrials[is1]*2-1)/(cf.Acc.Data$numTrials[is1] *2)
+
+cf.d.Data <- {
+  cf.Acc.Data %>% 
+    spread(SameDifferent, Acc) %>%  # divide the accuracy into two columns by same and different trials
+    mutate(zH = qnorm(S)) %>%   # calculate the z value for hit
+    mutate(zFA = qnorm(1-D)) %>%  # calculate the z value for false alarm
+    mutate(dprime = zH - zFA) #%>%  # calculate the d prime 
+    # select(Participant, Experiment, Congruency, Alignment, dprime)  # only keep the participant, independent and dependent variables
+}
+cf.d.Data
+```
+
+
+## Descriptive statistics of sensitivity d for CF
+```{r descriptive statistics of sensitivity d for CF}
+cf.d.Descrip <-{
+  cf.d.Data %>%
+    ezStats(
+      dv = dprime,
+      wid = Participant,
+      within = .(Experiment, Congruency, Alignment)
+    ) %>%  # calculate the descriptive statistics for d prime
+    ezStatsPlus %>% # function in the beginning of this file
+    round_df(4)
+}
+
+print(cf.d.Descrip, width = Inf)
+```
+
+
+## ANOVA of sensitivity d for CF
+### Sensitivity d': Experiment(2) $\times$ Congruency(2) $\times$ Alignment(2)
+A 2(<b>Experiment</b>: CFS vs. Monocular) $\times$ 2(<b>Congruency</b>: congruent vs. incongruent) $\times$ 2(<b>Alignment</b>: aligned vs. misaligned) repeated measure ANOVA were conducetd and results show: 
+```{r ANOVA of sensitivity d for CF}
+cf.d.anova <- {
+  cf.d.Data %>%
+    ezANOVA(
+      dv = dprime,
+      wid = Participant,
+      within = .(Experiment, Congruency, Alignment),
+      detailed = TRUE,
+      type = 3,
+      return_aov = TRUE
+    ) %>%  # run repeaed measures ANOVA 
+    ezANOVAPlus # add partial eta square and CIs
+}
+
+print(round_df(cf.d.anova$ANOVA,4), width = Inf)
+```
+
+```{r include = FALSE}
+thisExp <- expLevel.new[1]
+```
+### Sensitivity d' for `r thisExp`: Congruency(2) $\times$ Alignment(2)
+A (<b>Congruency</b>: congruent vs. incongruent) $\times$ 2(<b>Alignment</b>: aligned vs. misaligned) repeated measure ANOVA were conducetd for `r thisExp` and results show: 
+```{r ANOVA of sensitivity d for CF with CFS}
+cf.d.anova.CFS <- {
+  cf.d.Data %>%
+    filter(Experiment == thisExp) %>% 
+    ezANOVA(
+      dv = dprime,
+      wid = Participant,
+      within = .(Congruency, Alignment),
+      detailed = TRUE,
+      return_aov = TRUE
+    ) %>%  # run repeaed measures ANOVA 
+    ezANOVAPlus  # add partial eta square and CIs
+}
+
+print(round_df(cf.d.anova.CFS$ANOVA,4), width = Inf)
+```
+
+#### Post hoc analysis of sensitivity d' for `r thisExp`: Congruency(2) $\times$ Alignment(2)
+None of the differences for main and interaction effects were significant. 
+```{r Post hoc analysis of sensitivity d for the composite face task with CFS}
+data <- {
+  cf.d.Data %>%
+    filter(Experiment == thisExp)  # select the correct trials for CF task (rows)
+}
+
+cf.d.lm.cfs <- lme(dprime ~ Congruency*Alignment, random = ~1|Participant/Congruency/Alignment, data = data)
+# summary(cf.d.lm.cfs)
+
+# lsmeans(cf.d.lm.cfs, pairwise ~ Congruency, adjust="tukey") 
+# lsmeans(cf.d.lm.cfs, pairwise ~ Alignment, adjust="tukey") 
+# lsmeans(cf.d.lm.cfs, pairwise ~ Congruency:Alignment, adjust="tukey")
+```
+
+```{r include = FALSE}
+thisExp <- expLevel.new[2]
+```
+### Sensitivity d' for `r thisExp`: Congruency(2) $\times$ Alignment(2)
+A (<b>Congruency</b>: congruent vs. incongruent) $\times$ 2(<b>Alignment</b>: aligned vs. misaligned) repeated measure ANOVA were conducetd for `r thisExp` and results show: 
+```{r ANOVA of sensitivity d for CF with monocular}
+cf.d.anova.Mono <- {
+  cf.d.Data %>%
+    filter(Experiment == thisExp) %>%
+    ezANOVA(
+      dv = dprime,
+      wid = Participant,
+      within = .(Congruency, Alignment),
+      detailed = TRUE,
+      return_aov = TRUE
+    ) %>%  # run repeaed measures ANOVA 
+    ezANOVAPlus  # add partial eta square and CIs
+}
+
+print(round_df(cf.d.anova.Mono$ANOVA,4), width = Inf)
+```
+
+#### Post hoc analysis of d' for `r thisExp`: Congruency(2) $\times$ Alignment(2)
+```{r Post hoc analysis of sensitivity d for the composite face task with monocular}
+data <- {
+  cf.d.Data %>%
+    filter(Experiment == thisExp)  # select the correct trials for CF task (rows)
+}
+
+cf.d.lm.mono <- lme(dprime ~ Congruency*Alignment, random = ~1|Participant/Congruency/Alignment, data = data)
+# summary(cf.d.lm.mono)
+
+# lsmeans(cf.d.lm.mono, pairwise ~ Congruency, adjust="tukey") 
+# lsmeans(cf.d.lm.mono, pairwise ~ Alignment, adjust="tukey") 
+lsmeans(cf.d.lm.mono, pairwise ~ Congruency:Alignment, adjust="tukey")
+```
+
+## Plot of sensitivity d for CF
+```{r Plot of sensitivity d for CF}
+cf.d.Plot <- {
+  ggplot(data = cf.d.Descrip, aes(y = Mean, x = Alignment, color = Congruency)) +
+    geom_point(alpha = .8) +  # add the points
+    geom_line(aes(x = I(as.numeric(Alignment)), linetype = Congruency), size = 1, alpha = .8) +  # add the lines and set the different colors for con and inc trials
+    facet_grid(. ~ Experiment, switch = "x", labeller = labeller(Experiment = c(expLevel.new[1] == expLevel.new[1], expLevel.new[2] == expLevel.new[2]))) +  # divide the table into two facets by experiments
+    geom_errorbar(aes(colour = Congruency, ymin = lo, ymax = hi), show.legend = FALSE, width = 0.2, alpha = .5) + # add the error bars
+    scale_linetype_manual(values = c("solid","dashed"), labels = c("congruent", "incongruent")) + # set line style
+    scale_color_manual(values = c("#0000FF","#FF4500"), labels = c("congruent", "incongruent")) + # set line color
+## set the theme and y axis style    
+    theme_classic() +  # set the theme as class
+    theme(axis.line.y = element_line(arrow = arrow(length = unit(0.3, "cm"))))+  # add the arrow for y axis
+    scale_y_continuous(expand= c(0, 0)) +  # remove the space between columns and x axis
+    coord_cartesian(ylim = c(0,3.5)) +  # set the limit for y axis
+## set the texts in the plot
+    labs(title = "Sensitivity d' for the Composite Face Task in E108", x = "Experiment", y = "Sensitivity d'") +  # set the names for main, x and y axises
+    scale_x_discrete(labels = c("aligned", "misaligned")) +  # set the names for variables on x axis
+    theme(plot.title = element_text(size = 17), axis.title = element_text(size = 15), axis.text = element_text(size = 12)) + # the size of the texts in plot
+    theme(strip.text = element_text(face="bold", size=12, lineheight=5.0), strip.background = element_rect(fill="white", colour="white", size=1), strip.placement = "outside") + 
+ 
+## add labels of significants    
+    geom_text(data = transform(cf.d.Descrip, Mean = Mean + 0.1), label = c("NS", "", "", "", "***", "", "", ""), color = "red",  nudge_y = 0.2, nudge_x = 0.5) # add the significant label
+}
+
+cf.d.Plot
+```
+
+
+
+# Correct RT for the Composite Face Task
+```{r Clean and save the correct RT data for composite face task}
+cf.RT.Data <- {
+  rawData %>%
+    filter(Condition == "Complete" & isCorrect == 1) %>%  # select the trials for catch trials (rows)
+    mutate(reactionTime1000 = reactionTime * 1000) %>%  # change the unit of response time from "s" to "ms" (and add 300ms for the duration of stimuli)
+    group_by(Participant, Experiment, Congruency, Alignment) %>%  # the data was divided (group) by participant and independent variables
+    summarize(rt = mean(reactionTime1000), numTrials = n()) %>% # get the mean of ACC and RT in every condition
+    round_df(3)
+}
+
+cf.RT.Data
+```
+
+
+## Descriptive statistics of correct RT for CF
+```{r descriptive statistics of correct RT for CF}
+cf.RT.Descrip <- {
+  rawData %>%
+    filter(Condition == "Complete" & isCorrect == 1) %>%  # select the correct trials for CF task (rows)
+    mutate(rt = reactionTime * 1000) %>%  # change the unit of response time from "s" to "ms" (and add 300ms for the duration of stimuli)
+    ezStats(
+      dv = rt,
+      wid = Participant,
+      within = .(Experiment, Congruency, Alignment)
+    ) %>%  # calculate the descriptive statistics of corrrect RT
+    ezStatsPlus %>%
+    round_df(3) 
+}
+
+print(cf.RT.Descrip, width = Inf)
+```
+
+
+## ANOVA of correct RT for CF
+### Correct RT: Experiment(2) $\times$ Congruency(2) $\times$ Alignment(2)
+A 2(<b>Experiment</b>: CFS vs. Monocular) $\times$ 2(<b>Congruency</b>: congruent vs. incongruent) $\times$ 2(<b>Alignment</b>: aligned vs. misaligned) repeated measure ANOVA were conducetd and results show: 
+```{r ANOVA of correct RT for CF}
+cf.RT.anova <- {
+  rawData %>%
+    filter(Condition == "Complete" & isCorrect == 1) %>%  # select the correct trials for catch trials (rows)
+    mutate(rt = reactionTime * 1000) %>%
+    ezANOVA(
+      dv = rt,
+      wid = Participant,
+      within = .(Experiment, Congruency, Alignment),
+      detailed = TRUE,
+      return_aov = TRUE
+    ) %>%  # run repeaed measures ANOVA 
+    ezANOVAPlus  # add partial eta square and CIs
+}
+
+print(round_df(cf.RT.anova$ANOVA,4), width = Inf)
+```
+
+
+```{r include = FALSE}
+thisExp = expLevel.new[1]
+```
+### Correct RT for CFS: Congruency(2) $\times$ Alignment(2)
+A (<b>Congruency</b>: congruent vs. incongruent) $\times$ 2(<b>Alignment</b>: aligned vs. misaligned) repeated measure ANOVA were conducetd for `r thisExp` and results show: 
+```{r ANOVA of Correct RT for CF with `r thisExp`}
+cf.RT.anova.CFS <- {
+  rawData %>%
+    filter(Experiment == thisExp & Condition == "Complete" & isCorrect == 1) %>%
+    mutate(rt = reactionTime * 1000) %>%
+    ezANOVA(
+      dv = rt,
+      wid = Participant,
+      within = .(Congruency, Alignment),
+      detailed = TRUE,
+      return_aov = TRUE
+    ) %>%  # run repeaed measures ANOVA 
+    ezANOVAPlus  # add partial eta square and CIs
+}
+
+print(round_df(cf.RT.anova.CFS$ANOVA,4), width = Inf)
+```
+
+#### Post hoc analysis of Correct RT for `r thisExp`: Congruency(2) $\times$ Alignment(2)
+None of the differences for main and interaction effects were significant. 
+```{r Post hoc analysis of correct RT for the composite face task with CFS}
+# data <- {
+#   cf.RT.Data %>%
+#     filter(Experiment == thisExp)  # select the correct trials for CF task (rows)
+# }
+# 
+# cf.RT.lm.cfs <- lme(rt ~ Congruency*Alignment, random = ~1|Participant/Congruency/Alignment, data = data)
+# # summary(cf.RT.lm.cfs)
+# 
+# # lsmeans(cf.RT.lm.cfs, pairwise ~ Congruency, adjust="tukey") 
+# # lsmeans(cf.RT.lm.cfs, pairwise ~ Alignment, adjust="tukey") 
+# lsmeans(cf.RT.lm.cfs, pairwise ~ Congruency:Alignment, adjust="tukey")
+```
+
+
+```{r include = FALSE}
+thisExp = expLevel.new[2]
+```
+### Correct RT for `r thisExp`: Congruency(2) $\times$ Alignment(2)
+A (<b>Congruency</b>: congruent vs. incongruent) $\times$ 2(<b>Alignment</b>: aligned vs. misaligned) repeated measure ANOVA were conducetd for `r thisExp` and results show: 
+```{r ANOVA of Correct RT for CF with monocular}
+cf.RT.anova.mono <- {
+  rawData %>%
+    filter(Experiment == thisExp & Condition == "Complete" & isCorrect == 1) %>%
+    mutate(rt = reactionTime * 1000) %>%
+    ezANOVA(
+      dv = rt,
+      wid = Participant,
+      within = .(Congruency, Alignment),
+      detailed = TRUE,
+      return_aov = TRUE
+    ) %>%  # run repeaed measures ANOVA 
+    ezANOVAPlus  # add partial eta square and CIs
+}
+
+print(round_df(cf.RT.anova.mono$ANOVA,4), width = Inf)
+```
+
+#### Post hoc analysis of Correct RT for `r thisExp`: Congruency(2) $\times$ Alignment(2)
+```{r Post hoc analysis of correct RT for the composite face task with mono}
+data <- {
+  cf.RT.Data %>%
+    filter(Experiment == thisExp)  # select the correct trials for CF task (rows)
+}
+
+cf.RT.lm.mono <- lme(rt ~ Congruency*Alignment, random = ~1|Participant/Congruency/Alignment, data = data)
+# summary(cf.RT.lm.mono)
+
+lsmeans(cf.RT.lm.mono, pairwise ~ Congruency, adjust="tukey")
+# lsmeans(cf.RT.lm.mono, pairwise ~ Alignment, adjust="tukey") 
+# lsmeans(cf.RT.lm.mono, pairwise ~ Congruency:Alignment, adjust="tukey")
+```
+
+## Plot of correct RT for CF
+```{r Plot of correct RT for CF}
+cf.RT.Plot <- {
+  ggplot(data = cf.RT.Descrip, aes(y = Mean, x = Alignment, color = Congruency)) +
+    geom_point(alpha = .8) +  # add the points
+    geom_line(aes(x = I(as.numeric(Alignment)), linetype = Congruency), size = 1, alpha = .8) +  # add the lines and set the different colors for con and inc trials
+    scale_linetype_manual(values = c("solid","dashed"), labels = c("congruent", "incongruent")) + # set line style
+    scale_color_manual(values = c("#0000FF","#FF4500"), labels = c("congruent", "incongruent")) + # set line color
+    facet_grid(. ~ Experiment, switch = "x", labeller = labeller(Experiment = c(expLevel.new[1] == expLevel.new[1], expLevel.new[2] == expLevel.new[2]))) +  # divide the table into two facets by experiments
+    geom_errorbar(aes(colour = Congruency, ymin = lo, ymax = hi), show.legend = FALSE, width = 0.2, alpha = .5) + # add the error bars
+    theme_classic() +  # set the theme as class
+    theme(axis.line.y = element_line(arrow = arrow(length = unit(0.3, "cm"))))+  # add the arrow for y axis
+    scale_y_continuous(expand= c(0, 0)) +  # remove the space between columns and x axis
+    coord_cartesian(ylim = c(0,900)) +  # set the limit for y axis
+    labs(title = "Correct response time for the Composite Face Task in E108", x = "Experiment", y = "Response time (ms)") +  # set the names for main, x and y axises
+    scale_x_discrete(labels = c("aligned", "misaligned")) +  # set the names for variables on x axis 
+    theme(plot.title = element_text(size = 17), axis.title = element_text(size = 15), axis.text = element_text(size = 12)) + # the size of the texts in plot
+    theme(strip.text = element_text(face="bold", size=12, lineheight=5.0), strip.background = element_rect(fill="white", colour="white", size=1), strip.placement = "outside") + 
+    geom_text(data = transform(cf.d.Descrip, Mean = Mean + 0.1), label = c("NS", "", "", "", "NS", "", "", ""), color = "red",  nudge_y = 810, nudge_x = 0.5) # set the significant label manually
+}
+
+cf.RT.Plot
+```
+
+
+
+# Accuracy for Catch Trials
+```{r Clean and save the accuracy data for catch trials (Catch Trials)}
+catch.Acc.Data <- {
+  rawData %>%
+    filter(Condition == "CatchOnly") %>%  # select the trials for catch trials (rows)
+    group_by(Participant, Experiment, Alignment) %>%  # the data was divided (group) by participant and independent variables
+    summarize(Acc = mean(isCorrect), numTrials = n()) %>% # get the mean of ACC and RT in every condition
+    round_df(3)
+}
+catch.Acc.Data
+```
+
+
+## Descriptive statistics of accuracy for catch trials
+```{r descriptive statistics of accuracy for Catch trials}
+catch.Acc.Descrip <- {
+  rawData %>%
+    filter(Condition == "CatchOnly") %>%  # select the trials for catch trials (rows)
+    ezStats(
+      dv = isCorrect,
+      wid = Participant,
+      within = .(Experiment, Alignment)
+    ) %>%  # calculate the descriptive statistics
+    ezStatsPlus %>%
+    round_df(4)
+}
+
+print(catch.Acc.Descrip, width = Inf)
+```
+
+
+## One sample t-test for accuracy for catch trials
+```{r One sample t test for accuracy for catch trials}
+# run the one sample t test comparing with 0.5 (chance level)
+catch.Acc.One <-  tapply(catch.Acc.Data$Acc, list(catch.Acc.Data$Alignment, catch.Acc.Data$Experiment), function(x) 
+  t.test(x, mu = 0.5, alternative = "greater", conf.level = 0.95), simplify = F)
+
+# sort out the t test results
+catch.OneT <-   mapply(function(x) x, catch.Acc.One) # convert from matrix to list
+colname.OneT <- mapply(function(x) paste(x, rownames(catch.Acc.One), sep ="-"), colnames(catch.Acc.One), USE.NAMES = FALSE)
+colname.OneT <- as.list(colname.OneT)
+
+colnames(catch.OneT) <- colname.OneT  # set the column names
+
+catch.OneT
+```
+
+
+## ANOVA of accuracy for catch trials
+```{r ANOVA of accuracy for catch trials}
+catch.Acc.anova <- {
+  rawData %>%
+    filter(Condition == "CatchOnly") %>%  # only keep the catch trials (deleted the trials for CF)
+    ezANOVA(
+      dv = isCorrect,
+      wid = Participant,
+      within = .(Experiment, Alignment),
+      detailed = TRUE,
+      return_aov = TRUE
+    ) %>%  # run repeaed measures ANOVA 
+    ezANOVAPlus  # add partial eta square and CIs
+}
+
+print(round_df(catch.Acc.anova$ANOVA,4), width = Inf)
+```
+
+
+## Post hoc analysis for accuracy for catch trials
+```{r Post hoc analysis for accuracy for catch trials}
+data <- catch.Acc.Data
+
+catch.Acc.lme <- lme(Acc ~ Experiment*Alignment, random = ~1|Participant/Experiment/Alignment, data = data)
+# summary(catch.Acc.lme)
+
+lsmeans(catch.Acc.lme, pairwise ~ Experiment, adjust="tukey") 
+lsmeans(catch.Acc.lme, pairwise ~ Alignment, adjust="tukey")
+# lsmeans(catch.Acc.lme, pairwise ~ Experiment:Alignment, adjust="tukey") 
+
+```
+
+
+
+## Plot of accuracy for catch trials
+```{r Plot of accuracy for catch trials}
+catch.Acc.Plot = {
+  ggplot(data = catch.Acc.Descrip, aes(y = Mean, x = Experiment, fill = Alignment)) +  # set the data, varialbes for x and y axises, and the variable for dividing data
+    geom_col(position = "dodge", color = "black") +  # position of columns and countour of columns
+    geom_errorbar(mapping = aes(ymin = lo, ymax = hi), linetype = 1,  # set the error bar
+                  show.legend = FALSE, width = 0.25, alpha = .5, 
+                  position = position_dodge(width=0.9)) +
+    geom_hline(yintercept = 0.5, linetype = 5, alpha = 0.5) +  # add the line for 0.5 (y)
+    theme_classic() +  # set the theme as class
+    theme(axis.line.y = element_line(arrow = arrow(length = unit(0.3, "cm"))))+  # add the arrow
+    scale_y_continuous(expand= c(0, 0)) +  # remove the space between columns and x axis
+    coord_cartesian(ylim = c(0,1.05)) +  # set the limit for y axis
+    labs(title = "Accuracy for catch trials in E108", x = "Experiment", y = "Accuracy") +  # set the names for main, x and y axises
+    scale_x_discrete(labels = c("CFS", "Monocular", "Catch Only")) +  # set the names for variables on x axis 
+    scale_fill_manual(values=c("#CCCCCC","#FFFFFF"), labels = c("aligned", "misaligned")) +  # set the color for columns and the label names for legend
+    theme(plot.title = element_text(size = 17), axis.title = element_text(size = 15), axis.text = element_text(size = 12)) + # the size of the texts in plot
+    geom_text(label = c("", "", "*", "", "***","***"), color = c("red", "red","blue", "red", "red", "red"), nudge_y = 0.1, nudge_x = rep(c(-0.225, 0.225),3))
+}
+catch.Acc.Plot
+```
+
+
+
+# Correct RT for Catch Trials
+```{r Clean and save the correct RT data for catch trials (Catch Trials)}
+catch.RT.Data <- {
+  rawData %>%
+    filter(Condition == "CatchOnly" & isCorrect == 1) %>%  # select the trials for catch trials (rows)
+    mutate(reactionTime1000 = reactionTime * 1000) %>%  # change the unit of response time from "s" to "ms" (and add 300ms for the duration of stimuli)
+    group_by(Participant, Experiment, Alignment) %>%  # the data was divided (group) by participant and independent variables
+    summarize(rt = mean(reactionTime1000), numTrials = n()) %>% # get the mean of ACC and RT in every condition
+    round_df(3)
+}
+catch.RT.Data
+```
+
+
+## descriptive statistics of correct RT for catch trials
+```{r descriptive statistics of correct RT for catch trials}
+catch.RT.Descrip <- {
+  rawData %>%
+    filter(Condition == "CatchOnly" & isCorrect == 1) %>%  # select the correct trials for catch trials (rows)
+    mutate(rt = reactionTime * 1000) %>%
+    ezStats(
+      dv = rt,
+      wid = Participant,
+      within = .(Experiment, Alignment)
+    ) %>% # calculate the descriptive statistics
+    ezStatsPlus
+}
+
+print(catch.RT.Descrip, width = Inf)
+```
+
+
+## ANOVA of correct RT for catch trials
+```{r ANOVA of correct RT for catch trials}
+catch.RT.anova <- {
+  rawData %>%
+    filter(Condition == "CatchOnly" & isCorrect == 1) %>%  # select the correct trials for catch trials (rows)
+    mutate(rt = reactionTime * 1000) %>%
+    ezANOVA(
+      dv = rt,
+      wid = Participant,
+      within = .(Experiment, Alignment),
+      detailed = TRUE,
+      return_aov = TRUE
+    ) %>%  # run repeaed measures ANOVA 
+    ezANOVAPlus  # add partial eta square and CIs
+}
+
+print(catch.RT.anova$ANOVA, width = Inf)
+```
+
+
+## Post hoc analysis for correct RT for catch trials
+```{r Post hoc analysis for correct RT for catch trials}
+data <- catch.RT.Data
+
+catch.RT.lme <- lme(rt ~ Experiment*Alignment, random = ~1|Participant/Experiment/Alignment, data = data)
+# summary(catch.RT.lme)
+
+lsmeans(catch.RT.lme, pairwise ~ Experiment, adjust="tukey") 
+# lsmeans(catch.RT.lme, pairwise ~ Alignment, adjust="tukey") 
+# lsmeans(catch.RT.lme, pairwise ~ Experiment:Alignment, adjust="tukey") 
+```
+
+
+## Plot of correct response time for catch trials
+```{r Plot of correct response time for catch trials}
+catch.RT.Plot = {
+  ggplot(data = catch.RT.Descrip, aes(y = Mean, x = Experiment, fill = Alignment)) +  # set the data, varialbes for x and y axises, and the variable for dividing data
+      geom_col(position = "dodge", color = "black") +  # position of columns and countour of columns
+      geom_errorbar(mapping = aes(ymin = lo, ymax = hi), linetype = 1,  # set the error bar
+                    show.legend = FALSE, width = 0.25, alpha = .5, 
+                    position = position_dodge(width=0.9)) +
+      # geom_hline(yintercept = 0.5, linetype = 5, alpha = 0.5) +  # add the line for 0.5 (y)
+      theme_classic() +
+      theme(axis.line.y = element_line(arrow = arrow(length = unit(0.3, "cm"))))+  # add the arrow
+      scale_y_continuous(expand= c(0, 0)) +  # remove the space between columns and x axis
+      labs(title = "Correct response time for catch trials in E108", x = "Experiment", 
+           y = "Correct Response Time (ms)") +  # set the names for main, x and y axises
+      theme(plot.title = element_text(size = 17), axis.title = element_text(size = 15), axis.text = element_text(size = 12)) + # the size of the texts in plot
+      scale_x_discrete(labels = c("CFS", "Monocular", "Catch Only")) +  # set the names for variables on x axis 
+      scale_fill_manual(values=c("#CCCCCC","#FFFFFF"), labels = c("aligned", "misaligned"))  # set the color for columns and the label names for legend
+}
+catch.RT.Plot
+```
