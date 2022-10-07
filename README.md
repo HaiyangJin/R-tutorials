@@ -2,4 +2,4 @@
 
 Here are some tutorials for R basic functions. 
 
-1. [Tidy up](1_Tidyup/README.md)
+1. [Tidy up](1_Tidyup/)
