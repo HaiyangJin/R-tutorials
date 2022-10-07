@@ -1,7 +1,7 @@
 ---
 title: "Tidy up data with R(Studio)"
 author: "[Haiyang Jin](https://haiyangjin.github.io/)"
-date: "`r format(Sys.time(), '%b %d %Y')`"
+date: "`r format(Sys.time(), '%Y %b %d')`"
 output:
   html_document:
     df_print: paged
